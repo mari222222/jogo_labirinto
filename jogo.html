@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <title>Jogo Labirinto</title>
+    <style>
+        body { 
+            background: #000; 
+            color: white; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            font-family: 'Segoe UI', sans-serif; 
+            margin: 0; 
+            overflow: auto;
+            padding: 20px;
+        }
+        canvas { 
+            border: 4px solid #444; 
+            background: #050505; 
+            box-shadow: 0 0 50px rgba(231, 76, 60, 0.2);
+        }
+        .header { text-align: center; margin-bottom: 15px; }
+        .legend { display: flex; gap: 20px; background: #111; padding: 10px 25px; border-radius: 30px; border: 1px solid #333; margin-top: 10px; }
+        .item { display: flex; align-items: center; gap: 8px; font-size: 0.85em; }
+        .block { width: 14px; height: 14px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+    
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+const TILE_SIZE = 38; // Tamanho reduzido para caber o mapa gigante no ecrã
+
+/**
+ * MAPA EXTREMO (31 colunas x 17 linhas)
+ * 0: Caminho | 1: Parede | 2: Saltar (Amarelo) | 3: Túnel (Verde)
+ */
+const MAP = [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,1],
+    [1,0,1,1,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,1,0,1,0,1,0,1,0,1],
+    [1,0,1,0,0,0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,1,0,1,0,0,0,1,0,1],
+    [1,0,1,0,1,1,1,1,1,0,1,1,1,1,1,0,1,1,1,1,1,0,1,0,1,1,1,1,1,0,1],
+    [1,0,0,0,0,0,3,0,0,0,0,0,0,0,1,0,0,0,0,0,3,0,1,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,0,1,1,1,1,1,0,1,0,1,0,1,1,1,0,1,1,1,1,1,0,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,1,1,1,1,1,0,1,1,1,0,1,1,3,1,1,0,1,1,1,0,1,1,1,1,1,0,1,0,1],
+    [1,0,1,0,2,0,1,0,1,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,2,0,1,0,1,0,1],
+    [1,0,1,0,1,0,1,0,1,1,1,1,1,1,0,1,1,1,1,0,1,0,1,0,1,0,1,0,1,0,1],
+    [1,0,0,0,1,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1],
+    [1,1,1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1,1,1,0,1,1,1],
+    [1,0,0,0,0,0,3,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,1],
+    [1,0,1,1,1,0,1,1,1,0,1,1,1,0,1,0,1,1,1,0,1,1,1,0,1,1,1,0,1,0,1],
+    [1,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+
+canvas.width = MAP[0].length * TILE_SIZE;
+canvas.height = MAP.length * TILE_SIZE;
+
+const player = {
+    x: TILE_SIZE * 1.5,
+    y: TILE_SIZE * 1.5,
+    radius: 13,
+    speed: 4,
+    isJumping: false,
+    jumpTimer: 0
+};
+
+const keys = {};
+window.onkeydown = (e) => keys[e.code] = true;
+window.onkeyup = (e) => keys[e.code] = false;
+
+function checkCollision(nx, ny) {
+    let gridX = Math.floor(nx / TILE_SIZE);
+    let gridY = Math.floor(ny / TILE_SIZE);
+    
+    if (gridY < 0 || gridY >= MAP.length || gridX < 0 || gridX >= MAP[0].length) return true;
+    
+    let tile = MAP[gridY][gridX];
+    if (tile === 1) return true;
+
+    // Colisão centralizada para os obstáculos 2 e 3
+    let centerX = gridX * TILE_SIZE + TILE_SIZE/2;
+    let centerY = gridY * TILE_SIZE + TILE_SIZE/2;
+    let dist = Math.sqrt((nx - centerX)**2 + (ny - centerY)**2);
+
+    if (dist < 18) {
+        if (tile === 2 && !player.isJumping) return true;
+        if (tile === 3 && player.isJumping) return true;
+    }
+    return false;
+}
+
+function update() {
+    let nextX = player.x;
+    let nextY = player.y;
+
+    if (keys["Space"] && !player.isJumping) {
+        player.isJumping = true;
+        player.jumpTimer = 45; 
+    }
+
+    if (player.isJumping) {
+        player.jumpTimer--;
+        if (player.jumpTimer <= 0) player.isJumping = false;
+    }
+
+    if (keys["ArrowUp"]) nextY -= player.speed;
+    if (keys["ArrowDown"]) nextY += player.speed;
+    if (keys["ArrowLeft"]) nextX -= player.speed;
+    if (keys["ArrowRight"]) nextX += player.speed;
+
+    // Verificação de múltiplos pontos para evitar "atravessar" cantos de paredes
+    const m = 8;
+    if (!checkCollision(nextX, nextY) && 
+        !checkCollision(nextX-m, nextY-m) && 
+        !checkCollision(nextX+m, nextY+m) &&
+        !checkCollision(nextX+m, nextY-m) &&
+        !checkCollision(nextX-m, nextY+m)) {
+        player.x = nextX;
+        player.y = nextY;
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. FUNDO: Paredes e Obstáculos Amarelos
+    for (let r = 0; r < MAP.length; r++) {
+        for (let c = 0; c < MAP[r].length; c++) {
+            let tx = c * TILE_SIZE;
+            let ty = r * TILE_SIZE;
+
+            if (MAP[r][c] === 1) {
+                ctx.fillStyle = "#1a2a6c";
+                ctx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = "#34495e";
+                ctx.strokeRect(tx+2, ty+2, TILE_SIZE-4, TILE_SIZE-4);
+            } else if (MAP[r][c] === 2) {
+                ctx.fillStyle = "#f1c40f";
+                ctx.beginPath();
+                ctx.roundRect(tx + 10, ty + 10, TILE_SIZE - 20, TILE_SIZE - 20, 4);
+                ctx.fill();
+            }
+        }
+    }
+
+    // 2. BOLA VERMELHA (Desenha-se antes dos túneis para passar por baixo)
+    let visualRadius = player.radius;
+    if (player.isJumping) {
+        visualRadius = player.radius + Math.sin(player.jumpTimer * 0.07) * 10;
+        // Sombra da bola no ar
+        ctx.beginPath();
+        ctx.arc(player.x + 4, player.y + 4, visualRadius, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, visualRadius, 0, Math.PI * 2);
+    ctx.fillStyle = "#e74c3c";
+    ctx.fill();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 3. TOPO: Túneis Verdes (Efeito visual de passar por baixo)
+    for (let r = 0; r < MAP.length; r++) {
+        for (let c = 0; c < MAP[r].length; c++) {
+            if (MAP[r][c] === 3) {
+                let tx = c * TILE_SIZE;
+                let ty = r * TILE_SIZE;
+                
+                ctx.fillStyle = "#2ecc71";
+                ctx.globalAlpha = 0.9; // Quase opaco para o efeito ser real
+                ctx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
+                ctx.globalAlpha = 1.0;
+                
+                // Detalhe das bordas do túnel
+                ctx.strokeStyle = "rgba(255,255,255,0.5)";
+                ctx.strokeRect(tx+1, ty+1, TILE_SIZE-2, TILE_SIZE-2);
+            }
+        }
+    }
+
+    update();
+    requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
